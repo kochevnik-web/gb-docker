@@ -1,0 +1,60 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Check') {
+            steps {
+                sh '''
+                    rsync --version
+                    sshpass -V
+                    node -v
+                    php -v
+                    php /usr/local/bin/composer/composer.phar -V
+                '''
+            }
+        }
+        stage('Build') {
+            steps {
+                sh '''
+                    cd www/wp-content/themes/yadro
+                    php /usr/local/bin/composer/composer.phar install
+                    npm install
+                    npm run build
+                '''
+            }
+        }
+        stage('Deploy to Stage') {
+            when
+               {
+                   expression
+                   {
+                       return "${JOB_NAME}" == 'Stage YADRO Portal';
+                   }
+               }
+            steps {
+                sh '''
+                    cd www
+                    export SSHPASS=$SSH_PORTAL_STAGE_PSWD
+                    rsync --recursive --links --owner --group --times --verbose --no-perms --chmod=D0755,F0644 --rsh="sshpass -e ssh -o StrictHostKeyChecking=no" --exclude '.htaccess' --exclude 'wp-config.php' --exclude 'wp-content/uploads/*' --exclude 'wp-content/themes/yadro/node_modules' ./ $SSH_PORTAL_STAGE_USER@$SSH_PORTAL_STAGE_SERVER:/var/www/html/www --delete
+                    sshpass -p $SSH_PORTAL_STAGE_PSWD ssh -o StrictHostKeyChecking=no $SSH_PORTAL_STAGE_USER@$SSH_PORTAL_STAGE_SERVER "chown -R www-data:www-data /var/www/html/www"
+                '''
+            }
+        }
+        stage('Deploy to Prod') {
+                    when
+                       {
+                           expression
+                              {
+                                  return "${JOB_NAME}" == 'Prod YADRO Portal';
+                              }
+                       }
+                    steps {
+                        sh '''
+                            cd www
+                            export SSHPASS=$SSH_HOST_PSWD
+                            rsync --recursive --links --owner --group --times --verbose --no-perms --chmod=D0755,F0644 --rsh="sshpass -e ssh -o StrictHostKeyChecking=no" --exclude '.htaccess' --exclude 'wp-config.php' --exclude 'wp-content/uploads/*' --exclude 'wp-content/themes/yadro/node_modules' ./ $SSH_HOST_USER@$SSH_HOST_SERVER:engineer.yadro.com/ --delete
+                        '''
+                    }
+        }
+    }
+}
